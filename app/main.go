@@ -5,12 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"os"
 )
 
 func main() {
 	fmt.Println("Logs from your program will appear here!")
-	fmt.Println("Args:", os.Args)
 
 	resolverFlag := flag.String("resolver", "", "Upstream DNS resolver address (ip:port)")
 	flag.Parse()
@@ -100,8 +98,7 @@ func main() {
 		}
 
 		// 5. Write all answers second
-		for _, qn := range questions {
-			ans := NewDNSRecord(qn.Name, "8.8.8.8")
+		for _, ans := range answers {
 			response = append(response, ans.Bytes()...)
 		}
 		_, err = udpConn.WriteToUDP(response, source)
@@ -191,16 +188,6 @@ func NewDNSQn(name []byte) DNSQn {
 func (q DNSQn) Bytes() []byte {
 	var buf []byte
 
-	// 	// 1. Encode each label as [length][characters]
-	// 	labels := strings.Split(strings.TrimSuffix(q.Name, "."), ".")
-	// 	for _, label := range labels {
-	// 		buf = append(buf, byte(len(label)))
-	// 		buf = append(buf, label...)
-	// 	}
-	//
-	// 	// 2. Terminate the domain name with a null byte (0x00)
-	// 	buf = append(buf, 0x00)
-
 	buf = append(buf, q.Name...)
 	buf = binary.BigEndian.AppendUint16(buf, q.Type)
 	buf = binary.BigEndian.AppendUint16(buf, q.Class)
@@ -231,14 +218,6 @@ func NewDNSRecord(name []byte, ipAddr string) DNSRecord {
 
 func (a DNSRecord) Bytes() []byte {
 	var buf []byte
-
-	// // 1. Encode Name (same label encoding as DNSQn)
-	// labels := strings.Split(strings.TrimSuffix(a.Name, "."), ".")
-	// for _, label := range labels {
-	// 	buf = append(buf, byte(len(label)))
-	// 	buf = append(buf, label...)
-	// }
-	// buf = append(buf, 0x00)
 
 	buf = append(buf, a.Name...)
 	buf = binary.BigEndian.AppendUint16(buf, a.Type)
