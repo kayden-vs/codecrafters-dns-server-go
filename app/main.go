@@ -134,10 +134,10 @@ func main() {
 		// write header section
 		requestID := binary.BigEndian.Uint16(buf[0:2])
 		header := NewDNSHeader(requestID)
+		header.Qdcount = 1
 		response = header.Bytes()
 
 		// write question section
-		header.Qdcount = 1
 		qn := NewDNSQn("codecrafters.io")
 		response = append(response, qn.Bytes()...)
 
