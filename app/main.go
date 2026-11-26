@@ -34,34 +34,45 @@ func main() {
 		receivedData := string(buf[:size])
 		fmt.Printf("Received %d bytes from %s: %s\n", size, source, receivedData)
 
-		response := []byte{}
-
-		// write header section
+		// Parse header fields from request
 		requestID := binary.BigEndian.Uint16(buf[0:2])
-
 		flags := binary.BigEndian.Uint16(buf[2:4])
 		opCode := uint8((flags >> 11) & 0x0F)
 		rd := uint8((flags >> 8) & 0x01)
+		qdCount := binary.BigEndian.Uint16(buf[4:6])
 
+		// Parse all questions (handling DNS compression pointers)
+		var questions []DNSQn
+		offset := 12 // Questions start right after the 12-byte header
+
+		for i := 0; i < int(qdCount); i++ {
+			domainName, nextOffset := parseDomainName(buf[:size], offset)
+			qType := binary.BigEndian.Uint16(buf[nextOffset : nextOffset+2])
+			qClass := binary.BigEndian.Uint16(buf[nextOffset+2 : nextOffset+4])
+			offset = nextOffset + 4 // Advance past Type (2B) and Class (2B)
+
+			qn := NewDNSQn(domainName)
+			qn.Type = qType
+			qn.Class = qClass
+			questions = append(questions, qn)
+		}
+
+		// Write header section
 		header := NewDNSHeader(requestID, opCode, rd)
 		header.Qdcount = 1
 		header.Ancount = 1
 		response = header.Bytes()
 
-		// write question section
-		i := 12 // 12 bytes for header
-		for buf[i] != 0x00 {
-			i++
+		// 4. Write all questions first
+		for _, qn := range questions {
+			response = append(response, qn.Bytes()...)
 		}
 
-		domainName := buf[12 : i+1]
-		qn := NewDNSQn(domainName)
-		response = append(response, qn.Bytes()...)
-
-		// write answer section
-		ans := NewDNSRecord(domainName, "8.8.8.8")
-		response = append(response, ans.Bytes()...)
-
+		// 5. Write all answers second
+		for _, qn := range questions {
+			ans := NewDNSRecord(qn.Name, "8.8.8.8")
+			response = append(response, ans.Bytes()...)
+		}
 		_, err = udpConn.WriteToUDP(response, source)
 		if err != nil {
 			fmt.Println("Failed to send response:", err)
@@ -208,4 +219,45 @@ func (a DNSRecord) Bytes() []byte {
 	buf = append(buf, a.RData...)
 
 	return buf
+}
+
+func parseDomainName(buf []byte, offset int) ([]byte, int) {
+	var out []byte
+	curr := offset
+	jumped := false
+	nextOffset := offset
+
+	for curr < len(buf) {
+		length := buf[curr]
+
+		// Check for compression pointer (top 2 bits == 11)
+		if length&0xC0 == 0xC0 {
+			if !jumped {
+				nextOffset = curr + 2
+			}
+			ptr := int(binary.BigEndian.Uint16(buf[curr:curr+2]) & 0x3FFF)
+			curr = ptr
+			jumped = true
+			continue
+		}
+
+		// End of domain name (0x00)
+		if length == 0x00 {
+			out = append(out, 0x00)
+			if !jumped {
+				nextOffset = curr + 1
+			}
+			break
+		}
+
+		// Regular label: copy [length] + [label bytes]
+		end := curr + 1 + int(length)
+		out = append(out, buf[curr:end]...)
+		curr = end
+		if !jumped {
+			nextOffset = curr
+		}
+	}
+
+	return out, nextOffset
 }
