@@ -49,12 +49,12 @@ func main() {
 		response = header.Bytes()
 
 		// write question section
-		i := 12 // 14 bytes for header
+		i := 12 // 12 bytes for header
 		for buf[i] != 0x00 {
 			i++
 		}
 
-		domainName := buf[12:i]
+		domainName := buf[12 : i+1]
 		qn := NewDNSQn(domainName)
 		response = append(response, qn.Bytes()...)
 
