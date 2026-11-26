@@ -7,6 +7,61 @@ import (
 	"strings"
 )
 
+func main() {
+	fmt.Println("Logs from your program will appear here!")
+
+	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:2053")
+	if err != nil {
+		fmt.Println("Failed to resolve UDP address:", err)
+		return
+	}
+
+	udpConn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		fmt.Println("Failed to bind to address:", err)
+		return
+	}
+	defer udpConn.Close()
+
+	buf := make([]byte, 512)
+
+	for {
+		size, source, err := udpConn.ReadFromUDP(buf)
+		if err != nil {
+			fmt.Println("Error receiving data:", err)
+			break
+		}
+
+		receivedData := string(buf[:size])
+		fmt.Printf("Received %d bytes from %s: %s\n", size, source, receivedData)
+
+		response := []byte{}
+
+		// write header section
+		requestID := binary.BigEndian.Uint16(buf[0:2])
+		opCode := uint8((flags >> 11) & 0x0F)
+		rd := uint8((flags >> 8) & 0x01)
+
+		header := NewDNSHeader(requestID, opCode, rd)
+		header.Qdcount = 1
+		header.Ancount = 1
+		response = header.Bytes()
+
+		// write question section
+		qn := NewDNSQn("codecrafters.io")
+		response = append(response, qn.Bytes()...)
+
+		// write answer section
+		ans := NewDNSRecord("codecrafters.io", "8.8.8.8")
+		response = append(response, ans.Bytes()...)
+
+		_, err = udpConn.WriteToUDP(response, source)
+		if err != nil {
+			fmt.Println("Failed to send response:", err)
+		}
+	}
+}
+
 type DNSMsg struct {
 	header   DNSHeader
 	question DNSQn
@@ -29,45 +84,18 @@ type DNSHeader struct {
 	Arcount uint16
 }
 
-func NewDNSHeader(id uint16) DNSHeader {
+func NewDNSHeader(id uint16, opcode uint8, rd uint8) DNSHeader {
+	var rcode uint8
+	if opcode != 0 {
+		rcode = 4
+	}
+
 	return DNSHeader{
-		ID: id,
-		QR: 1,
-	}
-}
-
-type DNSQn struct {
-	Name  string
-	Type  uint16
-	Class uint16
-}
-
-func NewDNSQn(name string) DNSQn {
-	return DNSQn{
-		Name:  name,
-		Type:  1,
-		Class: 1,
-	}
-}
-
-type DNSRecord struct {
-	Name     string
-	Type     uint16
-	Class    uint16
-	TTL      uint32
-	RDLength uint16
-	RData    []byte
-}
-
-func NewDNSRecord(name string, ipAddr string) DNSRecord {
-	ip := net.ParseIP(ipAddr).To4()
-	return DNSRecord{
-		Name:     name,
-		Type:     1,
-		Class:    1,
-		TTL:      60,
-		RDLength: uint16(len(ip)),
-		RData:    ip,
+		ID:     id,
+		QR:     1,
+		Opcode: opcode,
+		RD:     rd,
+		Rcode:  rcode,
 	}
 }
 
@@ -97,6 +125,20 @@ func (h DNSHeader) PackFlags() uint16 {
 	return flags
 }
 
+type DNSQn struct {
+	Name  string
+	Type  uint16
+	Class uint16
+}
+
+func NewDNSQn(name string) DNSQn {
+	return DNSQn{
+		Name:  name,
+		Type:  1,
+		Class: 1,
+	}
+}
+
 func (q DNSQn) Bytes() []byte {
 	var buf []byte
 
@@ -116,6 +158,27 @@ func (q DNSQn) Bytes() []byte {
 	buf = binary.BigEndian.AppendUint16(buf, q.Class)
 
 	return buf
+}
+
+type DNSRecord struct {
+	Name     string
+	Type     uint16
+	Class    uint16
+	TTL      uint32
+	RDLength uint16
+	RData    []byte
+}
+
+func NewDNSRecord(name string, ipAddr string) DNSRecord {
+	ip := net.ParseIP(ipAddr).To4()
+	return DNSRecord{
+		Name:     name,
+		Type:     1,
+		Class:    1,
+		TTL:      60,
+		RDLength: uint16(len(ip)),
+		RData:    ip,
+	}
 }
 
 func (a DNSRecord) Bytes() []byte {
@@ -139,57 +202,4 @@ func (a DNSRecord) Bytes() []byte {
 	buf = append(buf, a.RData...)
 
 	return buf
-}
-
-func main() {
-	fmt.Println("Logs from your program will appear here!")
-
-	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:2053")
-	if err != nil {
-		fmt.Println("Failed to resolve UDP address:", err)
-		return
-	}
-
-	udpConn, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		fmt.Println("Failed to bind to address:", err)
-		return
-	}
-	defer udpConn.Close()
-
-	buf := make([]byte, 512)
-
-	for {
-		size, source, err := udpConn.ReadFromUDP(buf)
-		if err != nil {
-			fmt.Println("Error receiving data:", err)
-			break
-		}
-
-		receivedData := string(buf[:size])
-		fmt.Printf("Received %d bytes from %s: %s\n", size, source, receivedData)
-
-		// Create an empty response
-		response := []byte{}
-
-		// write header section
-		requestID := binary.BigEndian.Uint16(buf[0:2])
-		header := NewDNSHeader(requestID)
-		header.Qdcount = 1
-		header.Ancount = 1
-		response = header.Bytes()
-
-		// write question section
-		qn := NewDNSQn("codecrafters.io")
-		response = append(response, qn.Bytes()...)
-
-		// write answer section
-		ans := NewDNSRecord("codecrafters.io", "8.8.8.8")
-		response = append(response, ans.Bytes()...)
-
-		_, err = udpConn.WriteToUDP(response, source)
-		if err != nil {
-			fmt.Println("Failed to send response:", err)
-		}
-	}
 }
