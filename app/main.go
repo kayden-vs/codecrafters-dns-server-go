@@ -61,7 +61,7 @@ func main() {
 		header := NewDNSHeader(requestID, opCode, rd)
 		header.Qdcount = 1
 		header.Ancount = 1
-		response = header.Bytes()
+		response := header.Bytes()
 
 		// 4. Write all questions first
 		for _, qn := range questions {
