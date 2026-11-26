@@ -2,12 +2,26 @@ package main
 
 import (
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"net"
 )
 
 func main() {
 	fmt.Println("Logs from your program will appear here!")
+
+	resolverFlag := flag.String("resolver", "", "Upstream DNS resolver address (ip:port)")
+	flag.Parse()
+
+	var upstreamAddr *net.UDPAddr
+	if *resolverFlag != "" {
+		var err error
+		upstreamAddr, err = net.ResolveUDPAddr("udp", *resolverFlag)
+		if err != nil {
+			fmt.Println("Failed to resolve upstream UDP address:", err)
+			return
+		}
+	}
 
 	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:2053")
 	if err != nil {
@@ -57,13 +71,28 @@ func main() {
 			questions = append(questions, qn)
 		}
 
+		// Collect answers (either forwarded upstream or local fallback)
+		var answers []DNSRecord
+		for _, qn := range questions {
+			if upstreamAddr != nil && opCode == 0 {
+				forwardedRecords, err := forwardQuestion(upstreamAddr, requestID, opCode, rd, qn)
+				if err != nil {
+					fmt.Println("Failed to forward question:", err)
+					continue
+				}
+				answers = append(answers, forwardedRecords...)
+			} else if opCode == 0 {
+				answers = append(answers, NewDNSRecord(qn.Name, "8.8.8.8"))
+			}
+		}
+
 		// Write header section
 		header := NewDNSHeader(requestID, opCode, rd)
 		header.Qdcount = qdCount
 		header.Ancount = qdCount
 		response := header.Bytes()
 
-		// 4. Write all questions first
+		// Write all questions first
 		for _, qn := range questions {
 			response = append(response, qn.Bytes()...)
 		}
@@ -260,4 +289,74 @@ func parseDomainName(buf []byte, offset int) ([]byte, int) {
 	}
 
 	return out, nextOffset
+}
+
+func forwardQuestion(upstreamAddr *net.UDPAddr, id uint16, opcode uint8, rd uint8, qn DNSQn) ([]DNSRecord, error) {
+	conn, err := net.DialUDP("udp", nil, upstreamAddr)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	// Build a single-question query packet (QR = 0 for Query)
+	reqHeader := DNSHeader{
+		ID:      id,
+		QR:      0,
+		Opcode:  opcode,
+		RD:      rd,
+		Qdcount: 1,
+	}
+	queryPacket := append(reqHeader.Bytes(), qn.Bytes()...)
+
+	if _, err := conn.Write(queryPacket); err != nil {
+		return nil, err
+	}
+
+	respBuf := make([]byte, 512)
+	n, err := conn.Read(respBuf)
+	if err != nil {
+		return nil, err
+	}
+
+	packet := respBuf[:n]
+	ansCount := binary.BigEndian.Uint16(packet[6:8])
+	if ansCount == 0 {
+		return nil, nil
+	}
+
+	// Skip past the echoed Question in the upstream response
+	_, offset := parseDomainName(packet, 12)
+	offset += 4 // Skip QType (2B) and QClass (2B)
+
+	// Parse each Answer record so any upstream compression pointers are expanded cleanly
+	var records []DNSRecord
+	for i := 0; i < int(ansCount); i++ {
+		rec, nextOffset := parseDNSRecord(packet, offset)
+		records = append(records, rec)
+		offset = nextOffset
+	}
+
+	return records, nil
+}
+
+func parseDNSRecord(buf []byte, offset int) (DNSRecord, int) {
+	name, pos := parseDomainName(buf, offset)
+	rType := binary.BigEndian.Uint16(buf[pos : pos+2])
+	rClass := binary.BigEndian.Uint16(buf[pos+2 : pos+4])
+	ttl := binary.BigEndian.Uint32(buf[pos+4 : pos+8])
+	rdLength := binary.BigEndian.Uint16(buf[pos+8 : pos+10])
+	pos += 10
+
+	rData := make([]byte, rdLength)
+	copy(rData, buf[pos:pos+int(rdLength)])
+	pos += int(rdLength)
+
+	return DNSRecord{
+		Name:     name,
+		Type:     rType,
+		Class:    rClass,
+		TTL:      ttl,
+		RDLength: rdLength,
+		RData:    rData,
+	}, pos
 }
