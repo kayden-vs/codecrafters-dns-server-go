@@ -51,6 +51,23 @@ func NewDNSQn(name string) DNSQn {
 }
 
 type DNSRecord struct {
+	Name     string
+	Type     uint16
+	Class    uint16
+	TTL      uint32
+	RDLength uint16
+	RData    []byte
+}
+
+func NewDNSRecord(name string, ipAddr string) DNSRecord {
+	return DNSRecord{
+		Name:     name,
+		Type:     1,
+		Class:    1,
+		TTL:      60,
+		RDLength: 4,
+		RData:    net.ParseIP(ipAddr),
+	}
 }
 
 func (h DNSHeader) Bytes() []byte {
@@ -100,6 +117,29 @@ func (q DNSQn) Bytes() []byte {
 	return buf
 }
 
+func (a DNSRecord) Bytes() []byte {
+	var buf []byte
+
+	// 1. Encode Name (same label encoding as DNSQn)
+	labels := strings.Split(strings.TrimSuffix(a.Name, "."), ".")
+	for _, label := range labels {
+		buf = append(buf, byte(len(label)))
+		buf = append(buf, label...)
+	}
+	buf = append(buf, 0x00)
+
+	// 2. Append Type (2B), Class (2B), TTL (4B), and RDLength (2B)
+	buf = binary.BigEndian.AppendUint16(buf, a.Type)
+	buf = binary.BigEndian.AppendUint16(buf, a.Class)
+	buf = binary.BigEndian.AppendUint32(buf, a.TTL)
+	buf = binary.BigEndian.AppendUint16(buf, uint16(len(a.RData)))
+
+	// 3. Append raw RData bytes
+	buf = append(buf, a.RData...)
+
+	return buf
+}
+
 func main() {
 	fmt.Println("Logs from your program will appear here!")
 
@@ -140,6 +180,10 @@ func main() {
 		// write question section
 		qn := NewDNSQn("codecrafters.io")
 		response = append(response, qn.Bytes()...)
+
+		// write answer section
+		ans := NewDNSRecord("codecrafters.io", "8.8.8.8")
+		response = append(response, ans.Bytes()...)
 
 		_, err = udpConn.WriteToUDP(response, source)
 		if err != nil {
