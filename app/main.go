@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"strings"
 )
 
 func main() {
@@ -50,11 +49,18 @@ func main() {
 		response = header.Bytes()
 
 		// write question section
-		qn := NewDNSQn("codecrafters.io")
+		i := 15 // 14 bytes for header
+		for buf[i] != 0x00 {
+			i++
+		}
+		i--
+
+		domainName := buf[15:i]
+		qn := NewDNSQn(domainName)
 		response = append(response, qn.Bytes()...)
 
 		// write answer section
-		ans := NewDNSRecord("codecrafters.io", "8.8.8.8")
+		ans := NewDNSRecord(domainName, "8.8.8.8")
 		response = append(response, ans.Bytes()...)
 
 		_, err = udpConn.WriteToUDP(response, source)
@@ -128,12 +134,12 @@ func (h DNSHeader) PackFlags() uint16 {
 }
 
 type DNSQn struct {
-	Name  string
+	Name  []byte
 	Type  uint16
 	Class uint16
 }
 
-func NewDNSQn(name string) DNSQn {
+func NewDNSQn(name []byte) DNSQn {
 	return DNSQn{
 		Name:  name,
 		Type:  1,
@@ -144,18 +150,17 @@ func NewDNSQn(name string) DNSQn {
 func (q DNSQn) Bytes() []byte {
 	var buf []byte
 
-	// 1. Encode each label as [length][characters]
-	// Trim trailing dot just in case (e.g., "google.com.")
-	labels := strings.Split(strings.TrimSuffix(q.Name, "."), ".")
-	for _, label := range labels {
-		buf = append(buf, byte(len(label)))
-		buf = append(buf, label...)
-	}
+	// 	// 1. Encode each label as [length][characters]
+	// 	labels := strings.Split(strings.TrimSuffix(q.Name, "."), ".")
+	// 	for _, label := range labels {
+	// 		buf = append(buf, byte(len(label)))
+	// 		buf = append(buf, label...)
+	// 	}
+	//
+	// 	// 2. Terminate the domain name with a null byte (0x00)
+	// 	buf = append(buf, 0x00)
 
-	// 2. Terminate the domain name with a null byte (0x00)
-	buf = append(buf, 0x00)
-
-	// 3. Append Type (2 bytes) and Class (2 bytes) in Big Endian
+	buf = append(buf, q.Name...)
 	buf = binary.BigEndian.AppendUint16(buf, q.Type)
 	buf = binary.BigEndian.AppendUint16(buf, q.Class)
 
@@ -163,7 +168,7 @@ func (q DNSQn) Bytes() []byte {
 }
 
 type DNSRecord struct {
-	Name     string
+	Name     []byte
 	Type     uint16
 	Class    uint16
 	TTL      uint32
@@ -171,7 +176,7 @@ type DNSRecord struct {
 	RData    []byte
 }
 
-func NewDNSRecord(name string, ipAddr string) DNSRecord {
+func NewDNSRecord(name []byte, ipAddr string) DNSRecord {
 	ip := net.ParseIP(ipAddr).To4()
 	return DNSRecord{
 		Name:     name,
@@ -186,15 +191,15 @@ func NewDNSRecord(name string, ipAddr string) DNSRecord {
 func (a DNSRecord) Bytes() []byte {
 	var buf []byte
 
-	// 1. Encode Name (same label encoding as DNSQn)
-	labels := strings.Split(strings.TrimSuffix(a.Name, "."), ".")
-	for _, label := range labels {
-		buf = append(buf, byte(len(label)))
-		buf = append(buf, label...)
-	}
-	buf = append(buf, 0x00)
+	// // 1. Encode Name (same label encoding as DNSQn)
+	// labels := strings.Split(strings.TrimSuffix(a.Name, "."), ".")
+	// for _, label := range labels {
+	// 	buf = append(buf, byte(len(label)))
+	// 	buf = append(buf, label...)
+	// }
+	// buf = append(buf, 0x00)
 
-	// 2. Append Type (2B), Class (2B), TTL (4B), and RDLength (2B)
+	buf = append(buf, a.Name...)
 	buf = binary.BigEndian.AppendUint16(buf, a.Type)
 	buf = binary.BigEndian.AppendUint16(buf, a.Class)
 	buf = binary.BigEndian.AppendUint32(buf, a.TTL)
