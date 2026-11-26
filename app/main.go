@@ -39,6 +39,8 @@ func main() {
 
 		// write header section
 		requestID := binary.BigEndian.Uint16(buf[0:2])
+
+		flags := binary.BigEndian.Uint16(buf[2:4])
 		opCode := uint8((flags >> 11) & 0x0F)
 		rd := uint8((flags >> 8) & 0x01)
 
