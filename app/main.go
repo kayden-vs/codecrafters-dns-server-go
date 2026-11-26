@@ -60,12 +60,14 @@ type DNSRecord struct {
 }
 
 func NewDNSRecord(name string, ipAddr string) DNSRecord {
+	ip := net.ParseIP(ipAddr)
 	return DNSRecord{
-		Name:  name,
-		Type:  1,
-		Class: 1,
-		TTL:   60,
-		RData: net.ParseIP(ipAddr),
+		Name:     name,
+		Type:     1,
+		Class:    1,
+		TTL:      60,
+		RDLength: uint16(len(ip)),
+		RData:    ip,
 	}
 }
 
