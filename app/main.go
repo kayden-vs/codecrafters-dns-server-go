@@ -175,6 +175,7 @@ func main() {
 		requestID := binary.BigEndian.Uint16(buf[0:2])
 		header := NewDNSHeader(requestID)
 		header.Qdcount = 1
+		header.Ancount = 1
 		response = header.Bytes()
 
 		// write question section
