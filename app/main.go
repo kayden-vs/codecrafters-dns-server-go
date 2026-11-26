@@ -59,8 +59,8 @@ func main() {
 
 		// Write header section
 		header := NewDNSHeader(requestID, opCode, rd)
-		header.Qdcount = 1
-		header.Ancount = 1
+		header.Qdcount = qdCount
+		header.Ancount = qdCount
 		response := header.Bytes()
 
 		// 4. Write all questions first
