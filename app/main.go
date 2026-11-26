@@ -60,7 +60,7 @@ type DNSRecord struct {
 }
 
 func NewDNSRecord(name string, ipAddr string) DNSRecord {
-	ip := net.ParseIP(ipAddr)
+	ip := net.ParseIP(ipAddr).To4()
 	return DNSRecord{
 		Name:     name,
 		Type:     1,
