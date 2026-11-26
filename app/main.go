@@ -5,12 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"os"
-)
+	"os
 
 func main() {
 	fmt.Println("Logs from your program will appear here!")
-	// fmt.Println("Args:", os.Args)
+	fmt.Println("Args:", os.Args)
 
 	resolverFlag := flag.String("resolver", "", "Upstream DNS resolver address (ip:port)")
 	flag.Parse()
