@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strings"
 )
 
 type DNSMsg struct {
@@ -36,6 +37,17 @@ func NewDNSHeader(id uint16) DNSHeader {
 }
 
 type DNSQn struct {
+	Name  string
+	Type  uint16
+	Class uint16
+}
+
+func NewDNSQn(name string) DNSQn {
+	return DNSQn{
+		Name:  name,
+		Type:  1,
+		Class: 1,
+	}
 }
 
 type DNSRecord struct {
@@ -65,6 +77,27 @@ func (h DNSHeader) PackFlags() uint16 {
 	flags |= uint16(h.Z&0x7) << 4
 	flags |= uint16(h.Rcode & 0xF)
 	return flags
+}
+
+func (q DNSQn) Bytes() []byte {
+	var buf []byte
+
+	// 1. Encode each label as [length][characters]
+	// Trim trailing dot just in case (e.g., "google.com.")
+	labels := strings.Split(strings.TrimSuffix(q.Name, "."), ".")
+	for _, label := range labels {
+		buf = append(buf, byte(len(label)))
+		buf = append(buf, label...)
+	}
+
+	// 2. Terminate the domain name with a null byte (0x00)
+	buf = append(buf, 0x00)
+
+	// 3. Append Type (2 bytes) and Class (2 bytes) in Big Endian
+	buf = binary.BigEndian.AppendUint16(buf, q.Type)
+	buf = binary.BigEndian.AppendUint16(buf, q.Class)
+
+	return buf
 }
 
 func main() {
@@ -98,10 +131,15 @@ func main() {
 		// Create an empty response
 		response := []byte{}
 
-		// write header
+		// write header section
 		requestID := binary.BigEndian.Uint16(buf[0:2])
 		header := NewDNSHeader(requestID)
 		response = header.Bytes()
+
+		// write question section
+		header.Qdcount = 1
+		qn := NewDNSQn("codecrafters.io")
+		response = append(response, qn.Bytes()...)
 
 		_, err = udpConn.WriteToUDP(response, source)
 		if err != nil {
